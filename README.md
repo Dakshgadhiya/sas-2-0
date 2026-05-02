@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # SAS_2.0 – Location-Based Attendance System
 
 SAS_2.0 is a full stack web application designed to automate attendance using real-time GPS location. The system allows faculty to create lecture sessions and enables students to mark attendance only when they are physically present within the allowed location and time.
@@ -126,3 +127,4 @@ Daksh Gadhiya
 ## License
 
 This project is created for educational purposes.
+=======
