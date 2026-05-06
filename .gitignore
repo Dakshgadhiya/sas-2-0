@@ -6,3 +6,15 @@ LBAS/
 __pycache__/
 *.pyc
 .env
+*.db
+*.sql
+*.json
+*.log
+*.bak
+*.env.local
+backend/debug_logs.txt
+backend/app.db.bak
+frontend/.env.local
+sas.db
+sas_test_data.json
+sas_test_data.sql
