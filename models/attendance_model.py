@@ -1,8 +1,22 @@
+from datetime import datetime, timezone, timedelta
 import sqlite3
 from backend.database import get_db, row_to_dict
 
+# Use UTC for all stored timestamps
+UTC = timezone.utc
+
 
 def create_attendance(student_id, session_id, latitude, longitude, status, timestamp, start_time=None, end_time=None):
+    # Ensure timestamp has timezone offset; assume UTC for naive timestamps
+    if timestamp:
+        ts = str(timestamp).strip()
+        if '+' not in ts and not ts.endswith('Z'):
+            timestamp = f"{ts}+00:00"
+        else:
+            timestamp = ts
+    else:
+        timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    
     conn = get_db()
     cur = conn.cursor()
     try:
@@ -47,8 +61,9 @@ def get_attendance_by_student(student_id):
         return []
     
     student_semester = student_row[0]
+    now_iso = datetime.now(UTC).replace(microsecond=0).isoformat()
     
-    # Get all lectures for the student's semester
+    # Get ALL lectures (past and present) for the student's semester, prioritize past
     cur.execute("""
         SELECT 
             l.id,
@@ -74,7 +89,7 @@ def get_attendance_by_student(student_id):
     
     # Get attendance records for this student
     cur.execute("""
-        SELECT session_id, status, COALESCE(start_time, timestamp) as joining_time, end_time, timestamp
+        SELECT session_id, status, timestamp, end_time
         FROM attendance
         WHERE student_id = ?
     """, (student_id,))
@@ -85,17 +100,46 @@ def get_attendance_by_student(student_id):
             'status': row[1],
             'joining_time': row[2],
             'end_time': row[3],
-            'timestamp': row[4]
+            'timestamp': row[2]
         }
     
     conn.close()
     
     # Combine lectures with attendance data
     results = []
+    
     for lecture in all_lectures:
         session_id = lecture[6]
         attendance_data = attendance_map.get(session_id, {})
+        end_time = lecture[8]  # end_time from session
         
+        # Determine attendance status
+        if attendance_data:
+            status = attendance_data.get('status')
+        else:
+            # No attendance record and lecture is completed = absent
+            status = 'absent'
+
+        # Get join and exit times
+        joining_time = attendance_data.get('joining_time') or attendance_data.get('timestamp')
+        end_time_actual = attendance_data.get('end_time')
+
+        # Normalize naive timestamps: assume UTC if no offset present
+        def _norm(ts):
+            if not ts:
+                return None
+            t = str(ts).strip()
+            if '+' not in t and not t.endswith('Z'):
+                return f"{t}+00:00"
+            return t
+
+        joining_time = _norm(joining_time)
+        end_time_actual = _norm(end_time_actual)
+        
+        # For completed lectures, use session end_time if student didn't record exit
+        if status in ['present', 'late'] and not end_time_actual:
+            end_time_actual = end_time
+
         result = {
             'id': lecture[0],
             'student_id': student_id,
@@ -110,10 +154,10 @@ def get_attendance_by_student(student_id):
             'attendance_type': lecture[9],
             'threshold': lecture[10],
             'semester': lecture[11],
-            'status': attendance_data.get('status', 'absent'),  # Default to absent if no record
-            'joining_time': attendance_data.get('joining_time'),
-            'timestamp': attendance_data.get('timestamp'),
-            'end_time_actual': attendance_data.get('end_time')
+            'status': status,
+            'joining_time': joining_time,
+            'timestamp': joining_time,
+            'end_time_actual': end_time_actual
         }
         results.append(result)
     
@@ -124,27 +168,30 @@ def get_attendance_by_session(session_id):
     conn = get_db()
     cur = conn.cursor()
     
-    # First get the semester for this session
-    cur.execute("SELECT semester FROM lecture_sessions WHERE id = ?", (session_id,))
+    # First get the semester and end_time for this session
+    cur.execute("SELECT semester, end_time FROM lecture_sessions WHERE id = ?", (session_id,))
     session_row = cur.fetchone()
     if not session_row:
         conn.close()
         return []
     
     semester = session_row[0]
+    end_time = session_row[1]
+    
+    # Check if session has ended
+    now_iso = datetime.now(UTC).replace(microsecond=0).isoformat()
+    session_ended = end_time and end_time < now_iso
     
     # Get all students with their attendance status for this session, filtered by semester
-    # If no attendance record exists, mark as absent
     cur.execute(
         """
         SELECT 
             COALESCE(a.id, -1) as id,
             COALESCE(a.latitude, NULL) as latitude,
             COALESCE(a.longitude, NULL) as longitude,
-            COALESCE(a.status, 'absent') as status,
-            COALESCE(a.start_time, NULL) as start_time,
-            COALESCE(a.end_time, NULL) as end_time,
-            COALESCE(a.timestamp, NULL) as timestamp,
+            a.status,
+            COALESCE(a.timestamp, NULL) as join_time,
+            COALESCE(a.end_time, NULL) as exit_time,
             s.id as student_id,
             s.roll_number,
             u.name as student_name,
@@ -160,17 +207,69 @@ def get_attendance_by_session(session_id):
     rows = cur.fetchall()
     conn.close()
     
-    # Add color coding based on status
+    # Add color coding based on status and calculate duration
     results = []
     for r in rows:
         row_dict = row_to_dict(r)
-        status = row_dict.get('status', 'absent')
+        status = row_dict.get('status')
+        join_time = row_dict.get('join_time')
+        exit_time = row_dict.get('exit_time')
+        
+        # Get join time from timestamp field if join_time is NULL
+        if not join_time and row_dict.get('timestamp'):
+            join_time = row_dict.get('timestamp')
+            row_dict['join_time'] = join_time
+
+        # Normalize naive timestamps to explicit UTC
+        def _norm(ts):
+            if not ts:
+                return None
+            t = str(ts).strip()
+            if '+' not in t and not t.endswith('Z'):
+                return f"{t}+00:00"
+            return t
+
+        join_time = _norm(join_time)
+        exit_time = _norm(exit_time)
+        row_dict['join_time'] = join_time
+        row_dict['exit_time'] = exit_time
+
+        # For completed sessions: mark absent ONLY if no attendance record exists
+        if status is None and session_ended:
+            status = 'absent'
+        elif status is None:
+            # Session is ongoing - do NOT show any attendance status yet
+            status = None
+        
+        # Fill exit_time from session end_time for completed sessions
+        if status in ['present', 'late'] and not exit_time and session_ended:
+            exit_time = end_time
+            row_dict['exit_time'] = exit_time
+        
+        row_dict['status'] = status
+        
+        # Calculate attendance duration (in minutes)
+        duration_minutes = None
+        if join_time and exit_time and status in ['present', 'late']:
+            try:
+                join_dt = datetime.fromisoformat(join_time)
+                exit_dt = datetime.fromisoformat(exit_time)
+                duration = (exit_dt - join_dt).total_seconds() / 60
+                duration_minutes = int(round(duration))
+            except:
+                duration_minutes = None
+        
+        row_dict['duration_minutes'] = duration_minutes
+        
         if status == 'present':
             row_dict['color'] = 'green'  # Green for Present
         elif status == 'late':
             row_dict['color'] = 'orange'  # Orange for Late
-        else:  # absent or other
+        elif status == 'absent':
             row_dict['color'] = 'red'  # Red for Absent
+        else:
+            row_dict['color'] = 'gray'  # Gray for no status (ongoing/future)
+        
         results.append(row_dict)
     
     return results

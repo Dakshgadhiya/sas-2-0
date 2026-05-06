@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiFetch } from "../services/api";
+import { normalizeTimestamp } from "../utils/time";
 
 const studentLinks = [
   { to: "/student/dashboard", label: "DASHBOARD" },
@@ -23,8 +24,15 @@ function computeCount(sessions, role, userId) {
   const now = new Date();
   const next24 = new Date(now.getTime() + 24 * 60 * 60 * 1000);
   let upcoming = sessions.filter((s) => {
-    const start = new Date(s.start_time);
-    return start >= now && start <= next24;
+    try {
+      const ts = normalizeTimestamp(s.start_time);
+      const ms = Date.parse(ts);
+      if (Number.isNaN(ms)) return false;
+      const start = new Date(ms);
+      return start >= now && start <= next24;
+    } catch (e) {
+      return false;
+    }
   });
   if (role === "faculty" && userId) {
     upcoming = upcoming.filter((s) => s.faculty_id === userId);

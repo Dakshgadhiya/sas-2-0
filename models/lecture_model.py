@@ -32,8 +32,8 @@ def create_session(lecture_id, start_time, end_time, attendance_type, threshold,
 
 def refresh_session_statuses(now_iso=None):
     if now_iso is None:
-        from datetime import datetime
-        now_iso = datetime.now().replace(microsecond=0).isoformat()
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
     conn = get_db()
     cur = conn.cursor()

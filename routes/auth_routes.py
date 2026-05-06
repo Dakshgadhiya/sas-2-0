@@ -63,7 +63,14 @@ def register():
 
     if role == "faculty":
         faculty_id = data.get("faculty_id")
+        # Accept either new 'subjects' array of objects OR legacy 'subject' + 'semesters' fields
         subjects = data.get("subjects") or []  # List of {semester, subject} objects
+        if not subjects and data.get("subject") and data.get("semesters"):
+            try:
+                legacy_semesters = data.get("semesters") or []
+                subjects = [{"semester": str(s), "subject": data.get("subject")} for s in legacy_semesters]
+            except Exception:
+                subjects = []
         department = data.get("department") or "Information Technology"
         
         if not faculty_id:
@@ -102,6 +109,15 @@ def register():
                     "INSERT OR IGNORE INTO faculty_subjects (faculty_id, semester, subject) VALUES (?, ?, ?)",
                     (faculty_db_id, semester, subject),
                 )
+
+            # If faculty table has a 'subject' column, populate it with legacy single-subject value
+            try:
+                cur.execute("PRAGMA table_info(faculty)")
+                cols = [r[1] for r in cur.fetchall()]
+                if 'subject' in cols and data.get('subject'):
+                    cur.execute("UPDATE faculty SET subject = ? WHERE id = ?", (data.get('subject'), faculty_db_id))
+            except Exception:
+                pass
             
             conn.commit()
             conn.close()
@@ -243,7 +259,14 @@ def faculty_profile_get():
         "department": department,
         "subjects": subjects
     }
-    
+    # Provide legacy compatibility fields: single 'subject' and 'semesters' string
+    legacy_subject = subjects[0]["subject"] if subjects else None
+    legacy_semesters = ", ".join([s["semester"] for s in subjects]) if subjects else None
+
+    # Attach legacy keys for older clients/tests
+    profile["subject"] = legacy_subject
+    profile["semesters"] = legacy_semesters
+
     return jsonify({"profile": profile})
 
 

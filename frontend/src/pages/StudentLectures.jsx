@@ -1,29 +1,27 @@
 import React, { useEffect, useState } from "react";
 import SidebarLayout from "../components/SidebarLayout";
 import { apiFetch } from "../services/api";
+import { formatTimeIST, normalizeTimestamp } from "../utils/time";
 
 function parseSessionStart(session) {
   if (session.start_time) {
-    const d = new Date(session.start_time);
-    if (!Number.isNaN(d.getTime())) return d;
+    try {
+      const norm = normalizeTimestamp(session.start_time);
+      const ms = Date.parse(norm);
+      if (!Number.isNaN(ms)) return new Date(ms);
+    } catch (e) {
+      // fallthrough
+    }
   }
   if (session.lecture_date) {
-    const d = new Date(`${session.lecture_date}T00:00:00`);
-    if (!Number.isNaN(d.getTime())) return d;
+    try {
+      const dms = Date.parse(normalizeTimestamp(`${session.lecture_date}T00:00:00`));
+      if (!Number.isNaN(dms)) return new Date(dms);
+    } catch (e) {
+      // fallthrough
+    }
   }
   return null;
-}
-
-// Format time in IST
-function formatTimeIST(timestamp) {
-  if (!timestamp) return "N/A";
-  return new Date(timestamp).toLocaleString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-    timeZone: "Asia/Kolkata"
-  });
 }
 
 export default function StudentLectures() {
@@ -70,28 +68,39 @@ export default function StudentLectures() {
     ? sessions.filter(s => String(s.semester) === String(studentSemester))
     : sessions;
 
-  // Upcoming lectures
+  // Organize lectures by time
   const upcoming = studentSessions
     .filter(s => {
-      const start = parseSessionStart(s);
-      const end = s.end_time ? new Date(s.end_time) : null;
-      const statusOk = !s.status || s.status === "scheduled" || s.status === "active";
-      if (!statusOk) return false;
-      if (s.status === "active") return true;
-      if (start && end) return end >= now;
-      if (start) return start >= now;
-      if (s.lecture_date) return new Date(`${s.lecture_date}T23:59:59`) >= now;
-      return true;
+      if (!s.end_time) return false;
+      try {
+        const endMs = Date.parse(normalizeTimestamp(s.end_time));
+        return !Number.isNaN(endMs) && endMs >= Date.now() && s.status !== "closed";
+      } catch (e) {
+        return false;
+      }
     })
-    .sort((a, b) => parseSessionStart(a)?.getTime() - parseSessionStart(b)?.getTime());
+    .sort((a, b) => {
+      const am = Date.parse(normalizeTimestamp(a.start_time));
+      const bm = Date.parse(normalizeTimestamp(b.start_time));
+      return am - bm;
+    });
 
-  // Past lectures
   const past = studentSessions
     .filter(s => {
-      const end = s.end_time ? new Date(s.end_time) : null;
-      return end && end < now && (s.status === "closed" || s.status === "ended");
+      if (s.status === "closed") return true;
+      if (!s.end_time) return false;
+      try {
+        const endMs = Date.parse(normalizeTimestamp(s.end_time));
+        return !Number.isNaN(endMs) && endMs < Date.now();
+      } catch (e) {
+        return false;
+      }
     })
-    .sort((a, b) => new Date(b.end_time) - new Date(a.end_time));
+    .sort((a, b) => {
+      const am = a.start_time ? Date.parse(normalizeTimestamp(a.start_time)) : Date.parse(normalizeTimestamp(`${a.lecture_date}T00:00:00`));
+      const bm = b.start_time ? Date.parse(normalizeTimestamp(b.start_time)) : Date.parse(normalizeTimestamp(`${b.lecture_date}T00:00:00`));
+      return bm - am;
+    });
 
   const LectureCard = ({ session }) => (
     <div className="rounded-lg border border-slate-200 dark:border-[#33415c] bg-white dark:bg-[#002855] p-4 hover:shadow-md transition-shadow">
@@ -146,17 +155,17 @@ export default function StudentLectures() {
   return (
     <SidebarLayout role="student">
       <h1 className="text-3xl font-bold text-[#0466c8] dark:text-[#60a5fa] uppercase tracking-wide">My Lectures</h1>
-      <p className="text-neutral dark:text-slate-400 mt-2">View your scheduled and past lectures</p>
+      <p className="text-neutral dark:text-slate-400 mt-2">View your upcoming lectures and attendance history</p>
 
-      {/* Upcoming Lectures */}
+      {/* Upcoming/Active Lectures */}
       <div className="mt-8">
         <div className="mb-4">
           <h2 className="text-xl font-bold text-[#0466c8] dark:text-[#60a5fa] flex items-center uppercase tracking-wide">
             <span className="inline-block w-1 h-6 bg-[#0466c8] dark:bg-[#60a5fa] rounded mr-3"></span>
-            Scheduled / Upcoming Lectures
+            Upcoming Lectures
           </h2>
           <p className="text-sm text-neutral dark:text-slate-400 mt-1">
-            {upcoming.length} lecture(s) scheduled
+            {upcoming.length} lecture(s) available
           </p>
         </div>
 
@@ -174,11 +183,11 @@ export default function StudentLectures() {
       </div>
 
       {/* Past Lectures */}
-      <div className="mt-12">
+      <div className="mt-8">
         <div className="mb-4">
           <h2 className="text-xl font-bold text-neutral dark:text-slate-400 flex items-center uppercase tracking-wide">
             <span className="inline-block w-1 h-6 bg-neutral dark:bg-slate-400 rounded mr-3"></span>
-            Past Lectures
+            Lecture History
           </h2>
           <p className="text-sm text-neutral dark:text-slate-400 mt-1">
             {past.length} lecture(s) completed

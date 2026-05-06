@@ -2,18 +2,7 @@
 import SidebarLayout from "../components/SidebarLayout";
 import EmptyState from "../components/EmptyState";
 import { apiFetch } from "../services/api";
-
-// Format time in IST
-function formatTimeIST(timestamp) {
-  if (!timestamp) return "N/A";
-  return new Date(timestamp).toLocaleString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-    timeZone: "Asia/Kolkata"
-  });
-}
+import { formatTimeIST, normalizeTimestamp } from "../utils/time";
 
 export default function JoinLecture() {
   const [sessions, setSessions] = useState([]);
@@ -27,8 +16,21 @@ export default function JoinLecture() {
     const now = new Date();
 
     const upcoming = allSessions
-      .filter(s => new Date(s.start_time) > now)
-      .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+      .filter(s => {
+        try {
+          const ts = normalizeTimestamp(s.start_time);
+          const ms = Date.parse(ts);
+          if (Number.isNaN(ms)) return false;
+          return new Date(ms) > now;
+        } catch (e) {
+          return false;
+        }
+      })
+      .sort((a, b) => {
+        const am = Date.parse(normalizeTimestamp(a.start_time));
+        const bm = Date.parse(normalizeTimestamp(b.start_time));
+        return am - bm;
+      })
       .slice(0, 10);
 
     setSessions(upcoming);

@@ -1,10 +1,12 @@
 from flask import Blueprint, jsonify, request
 from backend.database import get_db
+from backend.auth_utils import auth_required
 import sqlite3
 
 admin_routes = Blueprint("admin_routes", __name__)
 
 @admin_routes.route("/api/admin/reset-database", methods=["POST"])
+@auth_required(role="faculty")
 def reset_database():
     """
     DANGEROUS: Delete all students, faculty, lectures, attendance data.

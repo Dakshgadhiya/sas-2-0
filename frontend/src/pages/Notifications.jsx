@@ -1,15 +1,25 @@
 ﻿import React, { useEffect, useState } from "react";
 import SidebarLayout from "../components/SidebarLayout";
 import { apiFetch } from "../services/api";
+import { normalizeTimestamp, formatTimeIST } from "../utils/time";
 
 function parseSessionStart(session) {
   if (session.start_time) {
-    const d = new Date(session.start_time);
-    if (!Number.isNaN(d.getTime())) return d;
+    try {
+      const norm = normalizeTimestamp(session.start_time);
+      const ms = Date.parse(norm);
+      if (!Number.isNaN(ms)) return new Date(ms);
+    } catch (e) {
+      // fallthrough
+    }
   }
   if (session.lecture_date) {
-    const d = new Date(`${session.lecture_date}T00:00:00`);
-    if (!Number.isNaN(d.getTime())) return d;
+    try {
+      const dms = Date.parse(normalizeTimestamp(`${session.lecture_date}T00:00:00`));
+      if (!Number.isNaN(dms)) return new Date(dms);
+    } catch (e) {
+      // fallthrough
+    }
   }
   return null;
 }
@@ -45,7 +55,15 @@ export default function Lectures({ role }) {
   let upcoming = sessions.filter((s) => {
     const start = parseSessionStart(s);
     if (!start) return false;
-    return start <= next24 && (s.end_time ? new Date(s.end_time) >= now : start >= now);
+    if (s.end_time) {
+      try {
+        const endMs = Date.parse(normalizeTimestamp(s.end_time));
+        return start <= next24 && endMs >= Date.now();
+      } catch (e) {
+        return false;
+      }
+    }
+    return start <= next24 && start >= now;
   });
 
   if (role === "faculty" && userId) {
@@ -76,7 +94,7 @@ export default function Lectures({ role }) {
           <div key={s.id} className="rounded-xl border border-[#B8BDB5] bg-[#E0E2DB] p-4">
             <div className="font-semibold text-[#5F7470]">{s.lecture_title}</div>
             <div className="text-sm text-[#889696]">
-              {s.lecture_subject} • {s.lecture_date} • {parseSessionStart(s)?.toLocaleString() || ""}
+              {s.lecture_subject} • {s.lecture_date} • {formatTimeIST(parseSessionStart(s)?.toISOString?.() || parseSessionStart(s))}
             </div>
             <div className="text-xs text-[#889696] mt-1">
               Faculty: {s.faculty_name || "Unknown"} • Type: {s.attendance_type}

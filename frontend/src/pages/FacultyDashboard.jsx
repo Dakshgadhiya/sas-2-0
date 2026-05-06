@@ -3,29 +3,27 @@ import SidebarLayout from "../components/SidebarLayout";
 import MetricCard from "../components/MetricCard";
 import { apiFetch } from "../services/api";
 import { useNotification } from "../hooks/useNotification";
+import { formatTimeIST, normalizeTimestamp } from "../utils/time";
 
 function parseSessionStart(session) {
   if (session.start_time) {
-    const d = new Date(session.start_time);
-    if (!Number.isNaN(d.getTime())) return d;
+    try {
+      const norm = normalizeTimestamp(session.start_time);
+      const ms = Date.parse(norm);
+      if (!Number.isNaN(ms)) return new Date(ms);
+    } catch (e) {
+      // fallthrough
+    }
   }
   if (session.lecture_date) {
-    const d = new Date(`${session.lecture_date}T00:00:00`);
-    if (!Number.isNaN(d.getTime())) return d;
+    try {
+      const dms = Date.parse(normalizeTimestamp(`${session.lecture_date}T00:00:00`));
+      if (!Number.isNaN(dms)) return new Date(dms);
+    } catch (e) {
+      // fallthrough
+    }
   }
   return null;
-}
-
-// Format time in IST
-function formatTimeIST(timestamp) {
-  if (!timestamp) return "N/A";
-  return new Date(timestamp).toLocaleString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-    timeZone: "Asia/Kolkata"
-  });
 }
 
 export default function FacultyDashboard() {
@@ -92,14 +90,29 @@ export default function FacultyDashboard() {
 
   const upcoming = filteredSessions.filter((s) => {
     const start = parseSessionStart(s);
-    const end = s.end_time ? new Date(s.end_time) : null;
+    let end = null;
+    if (s.end_time) {
+      try {
+        const ms = Date.parse(normalizeTimestamp(s.end_time));
+        if (!Number.isNaN(ms)) end = new Date(ms);
+      } catch (e) {
+        end = null;
+      }
+    }
     const statusOk = !s.status || s.status === "scheduled" || s.status === "active";
     if (!statusOk) return false;
 
     if (s.status === "active") return true;
     if (start && end) return end >= now;
     if (start) return start >= now;
-    if (s.lecture_date) return new Date(`${s.lecture_date}T23:59:59`) >= now;
+    if (s.lecture_date) {
+      try {
+        const dms = Date.parse(normalizeTimestamp(`${s.lecture_date}T23:59:59`));
+        if (!Number.isNaN(dms)) return new Date(dms) >= now;
+      } catch (e) {
+        return false;
+      }
+    }
     return true;
   });
 
@@ -107,9 +120,21 @@ export default function FacultyDashboard() {
 
   const past = userId 
     ? filteredSessions.filter((s) => {
-        const end = s.end_time ? new Date(s.end_time) : null;
+        let end = null;
+        if (s.end_time) {
+          try {
+            const ms = Date.parse(normalizeTimestamp(s.end_time));
+            if (!Number.isNaN(ms)) end = new Date(ms);
+          } catch (e) {
+            end = null;
+          }
+        }
         return Number(s.faculty_id) === Number(userId) && end && end < now && (s.status === "closed" || s.status === "ended");
-      }).sort((a, b) => new Date(b.end_time) - new Date(a.end_time))
+      }).sort((a, b) => {
+        const am = a.end_time ? Date.parse(normalizeTimestamp(a.end_time)) : 0;
+        const bm = b.end_time ? Date.parse(normalizeTimestamp(b.end_time)) : 0;
+        return bm - am;
+      })
     : [];
 
   // Calculate semester-specific metrics
@@ -171,24 +196,33 @@ export default function FacultyDashboard() {
         />
       </div>
 
-      {/* Scheduled Lectures */}
+      {/* Scheduled & Active Lectures */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="rounded-lg border border-slate-200 dark:border-[#33415c] bg-white dark:bg-[#002855] shadow-sm p-6">
-          <h2 className="text-lg font-bold text-[#0466c8] dark:text-[#60a5fa] mb-4 uppercase tracking-wide">Scheduled Lectures</h2>
+          <h2 className="text-lg font-bold text-[#0466c8] dark:text-[#60a5fa] mb-4 uppercase tracking-wide">Scheduled & Active Lectures</h2>
           
           {myUpcoming.length === 0 ? (
             <div className="text-sm text-[#889696] py-8 text-center">
-              No scheduled lectures for the selected semester.
+              No scheduled or active lectures for the selected semester.
             </div>
           ) : (
             <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
               {myUpcoming.map((s) => (
-                <div key={s.id} className="rounded-lg border border-slate-200 dark:border-[#33415c] bg-white dark:bg-[#001845] p-4 hover:border-[#0466c8] hover:bg-slate-50 dark:hover:bg-[#002855] transition-all">
-                  <div className="font-semibold text-[#0466c8] dark:text-[#60a5fa]">{s.lecture_title}</div>
+                <div key={s.id} className={`rounded-lg border p-4 hover:border-[#0466c8] transition-all ${
+                  s.status === 'active' 
+                    ? 'border-green-500 bg-green-50 dark:bg-green-950 hover:bg-green-100 dark:hover:bg-green-900'
+                    : 'border-slate-200 dark:border-[#33415c] bg-white dark:bg-[#001845] hover:bg-slate-50 dark:hover:bg-[#002855]'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <div className="font-semibold text-[#0466c8] dark:text-[#60a5fa]">{s.lecture_title}</div>
+                    {s.status === 'active' && (
+                      <span className="px-2 py-1 bg-green-500 text-white text-xs font-bold rounded">LIVE</span>
+                    )}
+                  </div>
                   <div className="text-sm text-neutral dark:text-slate-400 mt-1">{s.lecture_subject}</div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-neutral dark:text-slate-400 mt-2">
-                    <div>{s.lecture_date}</div>
-                    <div>{formatTimeIST(s.start_time)}</div>
+                    <div>📅 {s.lecture_date}</div>
+                    <div>⏰ {formatTimeIST(s.start_time)} - {formatTimeIST(s.end_time)}</div>
                   </div>
                 </div>
               ))}
@@ -211,9 +245,10 @@ export default function FacultyDashboard() {
                   <div className="font-semibold text-[#0466c8] dark:text-[#60a5fa]">{s.lecture_title}</div>
                   <div className="text-sm text-neutral dark:text-slate-400 mt-1">{s.lecture_subject}</div>
                   <div className="grid grid-cols-2 gap-2 text-xs text-neutral dark:text-slate-400 mt-2">
-                    <div>{s.lecture_date}</div>
-                    <div>{s.attendance_count ?? 0} attendees</div>
+                    <div>📅 {s.lecture_date}</div>
+                    <div>⏰ {formatTimeIST(s.start_time)} - {formatTimeIST(s.end_time)}</div>
                   </div>
+                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-2">👥 {s.attendance_count ?? 0} attendees</div>
                 </div>
               ))}
             </div>

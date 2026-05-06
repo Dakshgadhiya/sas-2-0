@@ -4,6 +4,7 @@ import MetricCard from "../components/MetricCard";
 import { apiFetch } from "../services/api";
 import { useNotification } from "../hooks/useNotification";
 import { getShortSubjectForm } from "../constants/subjects";
+import { normalizeTimestamp, formatTimeIST } from "../utils/time";
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
 
 export default function StudentDashboard() {
@@ -66,8 +67,8 @@ export default function StudentDashboard() {
     const percentage = (attended / total) * 100;
     if (percentage >= 75) return '#10B981'; // green
     if (percentage >= 50) return '#F59E0B'; // amber
-    if (percentage >= 25) return '#EF6347'; // coral
-    return '#EF4444'; // red
+    if (percentage >= 25) return '#F97316'; // orange
+    return '#DC2626'; // red
   };
 
   // Get all subjects from sessions for student's semester only
@@ -101,12 +102,22 @@ export default function StudentDashboard() {
 
   const barData = Object.entries(historyBySubject).map(([subject]) => {
     const data = historyBySubject[subject];
+    const percentage = data.total > 0 ? Math.round((data.present / data.total) * 100) : 0;
     const color = getAttendanceColor(data.present, data.total);
+    
+    // Determine status
+    let status = "Critical";
+    if (percentage >= 75) status = "Good";
+    else if (percentage >= 50) status = "Warning";
+    else if (percentage >= 25) status = "Low";
+    
     return {
       name: getShortSubjectForm(subject),
       attended: data.present,
       total: data.total,
       ratio: `${data.present}/${data.total}`,
+      percentage: percentage,
+      status: status,
       fill: color
     };
   });
@@ -127,21 +138,34 @@ export default function StudentDashboard() {
   
   const pieColors = getPieColors();
 
-  const now = new Date();
+  const now = Date.now();
   const upcoming = sessions
     .filter((s) => {
-      const startTime = new Date(s.start_time);
-      const endTime = new Date(s.end_time);
-      return startTime >= now && endTime >= now && s.status !== "closed";
+      try {
+        const startMs = s.start_time ? Date.parse(normalizeTimestamp(s.start_time)) : NaN;
+        const endMs = s.end_time ? Date.parse(normalizeTimestamp(s.end_time)) : NaN;
+        return (!Number.isNaN(startMs) && !Number.isNaN(endMs) && startMs >= now && endMs >= now && s.status !== "closed");
+      } catch (e) {
+        return false;
+      }
     })
     .slice(0, 5);
 
   const past = sessions
     .filter((s) => {
-      const endTime = new Date(s.end_time);
-      return endTime < now || s.status === "closed";
+      try {
+        if (s.status === "closed") return true;
+        const endMs = s.end_time ? Date.parse(normalizeTimestamp(s.end_time)) : NaN;
+        return !Number.isNaN(endMs) && endMs < now;
+      } catch (e) {
+        return false;
+      }
     })
-    .sort((a, b) => new Date(b.end_time) - new Date(a.end_time));
+    .sort((a, b) => {
+      const am = a.end_time ? Date.parse(normalizeTimestamp(a.end_time)) : 0;
+      const bm = b.end_time ? Date.parse(normalizeTimestamp(b.end_time)) : 0;
+      return bm - am;
+    });
 
   return (
     <SidebarLayout role="student">
@@ -158,7 +182,18 @@ export default function StudentDashboard() {
       </div>
 
       {/* Attendance Alert */}
-      {stats.total_lectures > 0 && stats.attendance_percentage < 75 && (
+      {stats.total_lectures > 0 && stats.attendance_percentage < 25 && (
+        <div className="mb-8 rounded-lg border-l-4 border-error bg-error/10 dark:bg-error/20 p-4 flex items-start gap-3">
+          <div>
+            <p className="font-bold text-error dark:text-red-300">🚨 CRITICAL: Attendance Below 25%</p>
+            <p className="text-sm text-error/80 dark:text-red-200 mt-1">
+              Your attendance is critically low! You must attend {remainingTo75} more lecture(s) immediately to meet the 75% requirement and avoid academic penalties.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {stats.total_lectures > 0 && stats.attendance_percentage >= 25 && stats.attendance_percentage < 75 && (
         <div className="mb-8 rounded-lg border-l-4 border-warning bg-warning/10 dark:bg-warning/20 p-4 flex items-start gap-3">
           <div>
             <p className="font-bold text-warning dark:text-yellow-300">Attendance Below 75%</p>
@@ -187,6 +222,17 @@ export default function StudentDashboard() {
               <div className="text-center">
                 <div className="text-3xl font-bold text-[#0466c8] dark:text-[#60a5fa]">{attendancePercentage}%</div>
                 <div className="text-xs text-neutral dark:text-slate-400 mt-1">Attendance Rate</div>
+                <div className={`text-sm font-bold mt-2 ${
+                  attendancePercentage >= 75 ? 'text-green-600' :
+                  attendancePercentage >= 50 ? 'text-yellow-600' :
+                  attendancePercentage >= 25 ? 'text-orange-600' :
+                  'text-red-600'
+                }`}>
+                  {attendancePercentage >= 75 ? 'Good' :
+                   attendancePercentage >= 50 ? 'Warning' :
+                   attendancePercentage >= 25 ? 'Low' :
+                   'Critical'}
+                </div>
               </div>
             </div>
           </div>
@@ -207,17 +253,17 @@ export default function StudentDashboard() {
               <span className="text-slate-700">50-74% (Fair)</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#EF6347'}}></div>
+              <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#F97316'}}></div>
               <span className="text-slate-700">25-49% (Poor)</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#EF4444'}}></div>
+              <div className="w-3 h-3 rounded-sm" style={{backgroundColor: '#DC2626'}}></div>
               <span className="text-slate-700">Below 25% (Critical)</span>
             </div>
           </div>
 
           {/* Chart */}
-          <div className="h-64">
+          <div className="h-64 mb-6">
             {barData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={barData}>
@@ -225,7 +271,10 @@ export default function StudentDashboard() {
                   <YAxis hide />
                   <Tooltip formatter={(value, name, props) => {
                     if (name === 'attended') {
-                      return `${props.payload.ratio} lectures`;
+                      return [
+                        `${props.payload.ratio} lectures (${props.payload.percentage}%)`,
+                        'Attendance'
+                      ];
                     }
                     return value;
                   }} />
@@ -241,6 +290,29 @@ export default function StudentDashboard() {
                 No subject data available
               </div>
             )}
+          </div>
+
+          {/* Subject-wise Details */}
+          <div className="space-y-2 text-sm">
+            {barData.map((subject, index) => (
+              <div key={index} className="flex items-center justify-between p-2 bg-slate-50 dark:bg-[#001845] rounded">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-sm" style={{backgroundColor: subject.fill}}></div>
+                  <span className="font-medium text-slate-700 dark:text-slate-300">{subject.name}</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="text-slate-600 dark:text-slate-400">{subject.ratio}</span>
+                  <span className={`font-bold px-2 py-1 rounded ${
+                    subject.percentage >= 75 ? 'bg-green-100 text-green-700' :
+                    subject.percentage >= 50 ? 'bg-yellow-100 text-yellow-700' :
+                    subject.percentage >= 25 ? 'bg-orange-100 text-orange-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {subject.percentage}% - {subject.status}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

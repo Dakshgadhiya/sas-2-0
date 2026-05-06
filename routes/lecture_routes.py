@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, g
 from backend.auth_utils import auth_required
 from backend.database import get_db
@@ -6,14 +6,55 @@ from models.lecture_model import create_lecture, create_session, get_active_sess
 from models.user_model import get_all_students
 from models.notifications_model import create_notification
 import json
+import os
+
+
+def _log_debug(msg):
+    try:
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend'))
+        path = os.path.join(base, 'debug_logs.txt')
+        with open(path, 'a', encoding='utf-8') as f:
+            f.write(msg + '\n')
+    except Exception:
+        pass
 
 lecture_routes = Blueprint("lecture_routes", __name__)
 
+# IST timezone (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+UTC = timezone.utc
+
 
 def _parse_iso(dt_str):
+    # Accept datetime objects directly
+    if isinstance(dt_str, datetime):
+        return dt_str
+    if not isinstance(dt_str, str):
+        return None
+    s = dt_str.strip()
+    # Normalize trailing Z to +00:00 for fromisoformat
+    if s.endswith('Z'):
+        s = s[:-1] + '+00:00'
     try:
-        return datetime.fromisoformat(dt_str)
-    except Exception:
+        return datetime.fromisoformat(s)
+    except Exception as e:
+        # Try known strptime formats as fallback
+        from datetime import datetime as _dt
+        fmts = ["%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S"]
+        for f in fmts:
+            try:
+                return _dt.strptime(s, f)
+            except Exception:
+                continue
+        # last-resort: try trimming fractional seconds
+        try:
+            if '.' in s:
+                parts = s.split('.')
+                base = parts[0]
+                return datetime.fromisoformat(base)
+        except Exception:
+            pass
+        print(f"DEBUG: Failed to parse datetime '{dt_str}': {e}")
         return None
 
 
@@ -49,22 +90,79 @@ def create_lecture_session():
             SELECT id FROM faculty WHERE user_id = ?
         )
     """, (g.user_id,))
-    faculty_semesters = [str(row[0]) for row in cur.fetchall()]
+    rows = cur.fetchall()
+    faculty_semesters = [str(row[0]) for row in rows]
+    had_assignments = len(faculty_semesters) > 0
     conn.close()
-    
+
     if not faculty_semesters:
         faculty_semesters = ["1"]
-    
-    if str(semester) not in faculty_semesters:
-        return jsonify({"error": f"You are not authorized to teach semester {semester}. Your semesters: {', '.join(faculty_semesters)}"}), 403
 
+    auto_assigned = False
+    if str(semester) not in faculty_semesters:
+        # Only auto-add if the faculty currently has NO assignments (helpful default)
+        if had_assignments:
+            return jsonify({"error": f"You are not authorized to teach semester {semester}. Your semesters: {', '.join(faculty_semesters)}"}), 403
+        try:
+            conn2 = get_db()
+            cur2 = conn2.cursor()
+            cur2.execute("SELECT id FROM faculty WHERE user_id = ?", (g.user_id,))
+            frow = cur2.fetchone()
+            if frow:
+                faculty_db_id = frow[0]
+                cur2.execute(
+                    "INSERT OR IGNORE INTO faculty_subjects (faculty_id, semester, subject) VALUES (?, ?, ?)",
+                    (faculty_db_id, semester, subject or 'General')
+                )
+                conn2.commit()
+                auto_assigned = True
+                # reflect change locally
+                faculty_semesters.append(str(semester))
+            conn2.close()
+        except Exception:
+            return jsonify({"error": f"You are not authorized to teach semester {semester}. Your semesters: {', '.join(faculty_semesters)}"}), 403
+
+    # Validate start and end times
+    print(f"DEBUG: Parsing times - start_time: {start_time}, end_time: {end_time}")
     start_dt = _parse_iso(start_time)
     end_dt = _parse_iso(end_time)
+    
     if not start_dt or not end_dt:
-        return jsonify({"error": "Invalid start_time or end_time format"}), 400
+        print(f"DEBUG: Time parsing failed - start_dt: {start_dt}, end_dt: {end_dt}")
+        return jsonify({
+            "error": f"Invalid start_time or end_time format. Expected ISO format (YYYY-MM-DDTHH:MM:SS). Got: start_time='{start_time}', end_time='{end_time}'"
+        }), 400
+    
+    # Normalize to timezone-aware UTC datetimes for safe comparison
+    try:
+        _log_debug(f"DEBUG: pre-normalize start_dt={repr(start_dt)} ({type(start_dt)}), end_dt={repr(end_dt)} ({type(end_dt)})")
+        if start_dt is None or end_dt is None:
+            raise ValueError("Invalid start or end datetime")
+
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=UTC)
+        else:
+            start_dt = start_dt.astimezone(UTC)
+
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=UTC)
+        else:
+            end_dt = end_dt.astimezone(UTC)
+
+        _log_debug(f"DEBUG: post-normalize start_dt={repr(start_dt)} tz={start_dt.tzinfo}, end_dt={repr(end_dt)} tz={end_dt.tzinfo}")
+    except Exception as e:
+        _log_debug(f"DEBUG: Time parsing failed - start_dt: {start_dt}, end_dt: {end_dt}, error: {e}")
+        return jsonify({
+            "error": f"Invalid start_time or end_time format. Expected ISO format (YYYY-MM-DDTHH:MM:SS). Got: start_time='{start_time}', end_time='{end_time}'"
+        }), 400
+
+    # Validate that end_time is after start_time
+    if end_dt <= start_dt:
+        return jsonify({"error": "End time must be after start time"}), 400
 
     lecture_id = create_lecture(title, subject, date, g.user_id, latitude, longitude, radius)
-    now = datetime.now()
+    # Use UTC for status checks
+    now = datetime.now(UTC)
     status = "scheduled"
     if start_dt <= now <= end_dt:
         status = "active"
@@ -107,7 +205,7 @@ def create_lecture_session():
 @auth_required()
 def active_session():
     """Get only currently active sessions (for marking attendance)"""
-    now = datetime.now().replace(microsecond=0).isoformat()
+    now = datetime.now(UTC).replace(microsecond=0).isoformat()
     mode = request.args.get("mode")
     
     # Students should only see active sessions for their semester

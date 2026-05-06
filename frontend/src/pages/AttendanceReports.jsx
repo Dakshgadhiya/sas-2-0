@@ -2,17 +2,16 @@ import React, { useEffect, useState, useMemo } from "react";
 import SidebarLayout from "../components/SidebarLayout";
 import { apiFetch } from "../services/api";
 import { SEMESTER_SUBJECTS } from "../constants/subjects";
+import { formatTimeIST } from "../utils/time";
 
-// Format time in IST
-function formatTimeIST(timestamp) {
-  if (!timestamp) return "";
-  return new Date(timestamp).toLocaleString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-    timeZone: "Asia/Kolkata"
-  });
+function formatDateDDMMYYYY(dateStr) {
+  if (!dateStr) return "N/A";
+  try {
+    const [year, month, day] = dateStr.split("-");
+    return `${day}-${month}-${year}`;
+  } catch (e) {
+    return dateStr;
+  }
 }
 
 export default function AttendanceReports() {
@@ -93,14 +92,18 @@ export default function AttendanceReports() {
       "Enrollment No.",
       "Student Name",
       "Status",
-      "Time"
+      "Join Time",
+      "Exit Time",
+      "Duration (mins)"
     ];
     const rows = report.map((row, index) => ([
       index + 1,
       row.roll_number || "",
       row.student_name,
-      row.status,
-      formatTimeIST(row.timestamp)
+      row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : "-",
+      formatTimeIST(row.join_time),
+      formatTimeIST(row.exit_time),
+      row.duration_minutes || "-"
     ]));
     const csv = [header, ...rows]
       .map((line) => line.map(csvEscape).join(","))
@@ -186,7 +189,7 @@ export default function AttendanceReports() {
               <option value="">Choose a session...</option>
               {sessionsForSelection.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.lecture_title} - {s.lecture_date}
+                  {s.lecture_title} - {formatDateDDMMYYYY(s.lecture_date)}
                 </option>
               ))}
             </select>
@@ -216,7 +219,9 @@ export default function AttendanceReports() {
                 <th className="text-left text-xs font-bold text-[#0466c8] dark:text-[#60a5fa] px-4 py-3 uppercase tracking-wide">Enrollment No.</th>
                 <th className="text-left text-xs font-bold text-[#0466c8] dark:text-[#60a5fa] px-4 py-3 uppercase tracking-wide">Student</th>
                 <th className="text-left text-xs font-bold text-[#0466c8] dark:text-[#60a5fa] px-4 py-3 uppercase tracking-wide">Status</th>
-                <th className="text-left text-xs font-bold text-[#0466c8] dark:text-[#60a5fa] px-4 py-3 uppercase tracking-wide">Time</th>
+                <th className="text-left text-xs font-bold text-[#0466c8] dark:text-[#60a5fa] px-4 py-3 uppercase tracking-wide">Join Time (IST)</th>
+                <th className="text-left text-xs font-bold text-[#0466c8] dark:text-[#60a5fa] px-4 py-3 uppercase tracking-wide">Exit Time (IST)</th>
+                <th className="text-left text-xs font-bold text-[#0466c8] dark:text-[#60a5fa] px-4 py-3 uppercase tracking-wide">Duration (mins)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 dark:divide-[#33415c]">
@@ -231,11 +236,17 @@ export default function AttendanceReports() {
                       row.status === "late" ? "bg-warning/20 text-warning dark:text-yellow-300" :
                       "bg-error/20 text-error dark:text-red-300"
                     }`}>
-                      {row.status.charAt(0).toUpperCase() + row.status.slice(1)}
+                      {row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : "-"}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-neutral dark:text-slate-400">
-                    {formatTimeIST(row.timestamp)}
+                    {formatTimeIST(row.join_time)}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-neutral dark:text-slate-400">
+                    {formatTimeIST(row.exit_time)}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-bold text-slate-900 dark:text-white">
+                    {row.duration_minutes !== null && row.duration_minutes !== undefined ? `${row.duration_minutes} min` : "-"}
                   </td>
                 </tr>
               ))}

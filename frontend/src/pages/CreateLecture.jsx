@@ -98,15 +98,85 @@ export default function CreateLecture() {
   async function handleSubmit(e) {
     e.preventDefault();
     
-    if (!form.lecture_title || !form.subject || !form.date || !form.start_time || !form.end_time) {
-      showError("Invalid input. Please check your details");
+    // Dynamic field validation
+    const requiredFields = [
+      { key: 'lecture_title', label: 'Title' },
+      { key: 'subject', label: 'Subject' },
+      { key: 'date', label: 'Date' },
+      { key: 'start_time', label: 'Start Time' },
+      { key: 'end_time', label: 'End Time' }
+    ];
+    
+    const missingFields = requiredFields.filter(field => !form[field.key]);
+    
+    if (missingFields.length > 0) {
+      if (missingFields.length === requiredFields.length) {
+        // All fields missing
+        showError("All fields (Title, Subject, Date, Start Time, End Time) are required");
+      } else if (missingFields.length === 1) {
+        // One field missing
+        showError(`${missingFields[0].label} is required`);
+      } else {
+        // Multiple fields missing
+        const fieldNames = missingFields.map(f => f.label).join(", ");
+        showError(`(${fieldNames}) are required`);
+      }
+      return;
+    }
+
+    // Validate time format (accepts both HH:MM and HH:MM:SS)
+    const timeRegex = /^([0-1][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/;
+    if (!timeRegex.test(form.start_time)) {
+      showError("Start time format is invalid. Please use HH:MM or HH:MM:SS format");
+      return;
+    }
+    if (!timeRegex.test(form.end_time)) {
+      showError("End time format is invalid. Please use HH:MM or HH:MM:SS format");
+      return;
+    }
+
+    // Normalize time to HH:MM:SS format
+    const normalizeTime = (timeStr) => {
+      const parts = timeStr.split(":");
+      if (parts.length === 2) {
+        // HH:MM -> HH:MM:00
+        return `${parts[0]}:${parts[1]}:00`;
+      }
+      // Already HH:MM:SS
+      return timeStr;
+    };
+
+    // Compare times - end must be after start
+    const [startHour, startMin, startSec] = form.start_time.split(":").map(Number);
+    const [endHour, endMin, endSec] = form.end_time.split(":").map(Number);
+    const startSeconds = startHour * 3600 + startMin * 60 + (startSec || 0);
+    const endSeconds = endHour * 3600 + endMin * 60 + (endSec || 0);
+    
+    if (endSeconds <= startSeconds) {
+      showError("End time must be after start time");
       return;
     }
 
     setSubmitLoading(true);
     try {
-      const start = `${form.date}T${form.start_time}:00`;
-      const end = `${form.date}T${form.end_time}:00`;
+      // Use normalized time format for ISO string
+      const normalizedStart = normalizeTime(form.start_time);
+      const normalizedEnd = normalizeTime(form.end_time);
+      
+      // Convert user-entered IST date+time into UTC ISO strings
+      const [y, m, d] = form.date.split("-").map(Number);
+      const [sh, smin, ss] = normalizedStart.split(":").map(Number);
+      const [eh, emin, es] = normalizedEnd.split(":").map(Number);
+
+      // IST offset is +05:30 -> 5.5 hours in milliseconds
+      const IST_OFFSET_MS = (5 * 60 + 30) * 60 * 1000;
+
+      // Build UTC ms by interpreting the components as local IST and subtracting IST offset
+      const startMs = Date.UTC(y, m - 1, d, sh, smin, ss) - IST_OFFSET_MS;
+      const endMs = Date.UTC(y, m - 1, d, eh, emin, es) - IST_OFFSET_MS;
+
+      const start = new Date(startMs).toISOString();
+      const end = new Date(endMs).toISOString();
       
       const payload = {
         lecture_title: form.lecture_title,
@@ -134,10 +204,16 @@ export default function CreateLecture() {
         setForm(defaultForm);
         setTimeout(() => fetchLocation(), 500);
       } else {
-        showError(data.error || "Failed to create lecture. Try again");
+        // Provide a clearer message when faculty is not authorized for the selected semester
+        if (res.status === 403 && data.error && data.error.toLowerCase().includes('not authorized to teach semester')) {
+          showError(`${data.error} Please add this semester to your teaching assignments in your profile before creating lectures.`);
+        } else {
+          showError(data.error || "Failed to create lecture. Try again");
+        }
       }
     } catch (err) {
-      showError("Something went wrong. Please try again");
+      console.error("Create lecture failed", err);
+      showError(err.message || "Something went wrong. Please try again");
     } finally {
       setSubmitLoading(false);
     }
