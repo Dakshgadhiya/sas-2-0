@@ -9,7 +9,8 @@ if BASE_DIR not in sys.path:
     sys.path.append(BASE_DIR)
 
 from backend import config
-from backend.database import init_db
+from backend.database import init_db, get_db
+from backend.auto_seed import auto_seed_if_empty
 from routes.auth_routes import auth_routes
 from routes.lecture_routes import lecture_routes
 from routes.attendance_routes import attendance_routes
@@ -32,6 +33,11 @@ def create_app():
 
     # Init DB
     init_db()
+    
+    # Auto-seed if empty (for Render deployments)
+    db = get_db()
+    auto_seed_if_empty(db)
+    db.close()
 
     # Register blueprints
     app.register_blueprint(auth_routes)
