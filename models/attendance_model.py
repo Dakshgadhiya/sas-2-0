@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 import hashlib
 import sqlite3
-from backend.database import get_db, row_to_dict
+from backend.database import DBIntegrityError, get_db, row_to_dict
 
 # Use UTC for all stored timestamps
 UTC = timezone.utc
@@ -60,7 +60,7 @@ def create_attendance(student_id, session_id, latitude, longitude, status, times
         )
         conn.commit()
         attendance_id = cur.lastrowid
-    except sqlite3.IntegrityError:
+    except (sqlite3.IntegrityError, DBIntegrityError):
         cur.execute(
             """
             UPDATE attendance

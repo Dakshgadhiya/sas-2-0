@@ -4,8 +4,9 @@ from backend.database import get_db
 from models.user_model import create_user, get_user_by_email, get_user_by_id, delete_user
 from models.faculty_model import create_faculty
 
-import sqlite3
 import json
+import sqlite3
+from backend.database import DBIntegrityError
 
 auth_routes = Blueprint("auth_routes", __name__)
 
@@ -48,7 +49,7 @@ def register():
                 (user_id, enrollment_number, department, semester),
             )
             conn.commit()
-        except sqlite3.IntegrityError:
+        except (sqlite3.IntegrityError, DBIntegrityError):
             conn.rollback()
             # remove created user in same connection to avoid lock
             cur.execute("DELETE FROM users WHERE id = ?", (user_id,))
@@ -121,7 +122,7 @@ def register():
             
             conn.commit()
             conn.close()
-        except sqlite3.IntegrityError:
+        except (sqlite3.IntegrityError, DBIntegrityError):
             delete_user(user_id)
             return jsonify({"error": "Faculty ID already exists"}), 409
 
