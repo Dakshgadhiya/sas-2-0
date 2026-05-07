@@ -27,9 +27,12 @@ def _iso_date_time(date_obj, hour=9, minute=0, second=0):
     return date_obj.replace(hour=hour, minute=minute, second=second, microsecond=0).isoformat()
 
 
-def _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids):
-    for lec_num in range(3):
-        past_date = datetime.now() - timedelta(days=random.randint(2, 20))
+MIN_LECTURES_PER_SEMESTER = 7
+
+
+def _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids, lecture_count=MIN_LECTURES_PER_SEMESTER):
+    for lec_num in range(lecture_count):
+        past_date = datetime.now() - timedelta(days=2 + lec_num * 3)
         start_time = _iso_date_time(past_date, hour=9)
         end_time = _iso_date_time(past_date, hour=10)
 
@@ -53,6 +56,17 @@ def _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids)
             )
 
 
+def _ensure_minimum_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids, min_lectures=MIN_LECTURES_PER_SEMESTER):
+    cur.execute(
+        "SELECT COUNT(*) FROM lecture_sessions ls JOIN lectures l ON l.id = ls.lecture_id WHERE ls.semester = ? AND l.faculty_id = ? AND l.subject = ?",
+        (semester, faculty_user_id, subject)
+    )
+    existing_count = cur.fetchone()[0]
+    if existing_count >= min_lectures:
+        return
+    _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids, lecture_count=min_lectures - existing_count)
+
+
 def auto_seed_if_empty(db_conn):
     """Seed database with test data if empty or if there are no lecture sessions."""
     cur = db_conn.cursor()
@@ -63,8 +77,25 @@ def auto_seed_if_empty(db_conn):
     session_count = cur.fetchone()[0]
 
     if user_count > 0 and session_count > 0:
-        print("[DB] Database already populated, skipping auto-seed")
-        return
+        print("[DB] Database already populated, checking minimum lecture count per semester...")
+        try:
+            cur.execute("SELECT id, user_id FROM faculty")
+            faculty_list = cur.fetchall()
+            for faculty_db_id, faculty_user_id in faculty_list:
+                cur.execute("SELECT semester, subject FROM faculty_subjects WHERE faculty_id = ?", (faculty_db_id,))
+                assignments = cur.fetchall()
+                for semester, subject in assignments:
+                    cur.execute("SELECT id FROM students WHERE semester = ?", (semester,))
+                    student_ids = [row[0] for row in cur.fetchall()]
+                    if student_ids:
+                        _ensure_minimum_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids)
+            db_conn.commit()
+            print(f"[DB] Ensured each faculty semester has at least {MIN_LECTURES_PER_SEMESTER} lectures")
+            return
+        except Exception as e:
+            db_conn.rollback()
+            print(f"[DB] Auto-seed failed: {e}")
+            raise
 
     if user_count > 0 and session_count == 0:
         print("[DB] Database has users but no lectures/sessions. Auto-seeding sample lectures and attendance...")
