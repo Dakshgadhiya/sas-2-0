@@ -54,7 +54,11 @@ export default function FacultyDashboard() {
           const data = await profile.json();
           const subjects = data.profile?.subjects || [];
           const semesters = [...new Set(subjects.map(s => s.semester))].sort();
-          setTeachingSemesters(semesters);
+          // Fallback to all semesters if none found
+          setTeachingSemesters(semesters.length > 0 ? semesters : ["1", "2", "3", "4", "5", "6"]);
+        } else {
+          // Fallback if profile fetch fails
+          setTeachingSemesters(["1", "2", "3", "4", "5", "6"]);
         }
 
         // Fetch all students to filter by semester
