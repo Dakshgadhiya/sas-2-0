@@ -27,7 +27,7 @@ def _iso_date_time(date_obj, hour=9, minute=0, second=0):
     return date_obj.replace(hour=hour, minute=minute, second=second, microsecond=0).isoformat()
 
 
-def _seed_lecture_sessions(cur, faculty_user_id, subject, student_ids):
+def _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids):
     for lec_num in range(3):
         past_date = datetime.now() - timedelta(days=random.randint(2, 20))
         start_time = _iso_date_time(past_date, hour=9)
@@ -40,8 +40,8 @@ def _seed_lecture_sessions(cur, faculty_user_id, subject, student_ids):
         lecture_id = cur.lastrowid
 
         cur.execute(
-            "INSERT INTO lecture_sessions (lecture_id, start_time, end_time, attendance_type, threshold, status, mode, join_url, semester) VALUES (?, ?, ?, 'LOCATION', 0, 'closed', 'OFFLINE', '', '1')",
-            (lecture_id, start_time, end_time)
+            "INSERT INTO lecture_sessions (lecture_id, start_time, end_time, attendance_type, threshold, status, mode, join_url, semester) VALUES (?, ?, ?, 'LOCATION', 0, 'closed', 'OFFLINE', '', ?)",
+            (lecture_id, start_time, end_time, semester)
         )
         session_id = cur.lastrowid
 
@@ -69,20 +69,28 @@ def auto_seed_if_empty(db_conn):
     if user_count > 0 and session_count == 0:
         print("[DB] Database has users but no lectures/sessions. Auto-seeding sample lectures and attendance...")
         try:
-            cur.execute("SELECT id FROM students")
-            students = [row[0] for row in cur.fetchall()]
             cur.execute("SELECT id, user_id FROM faculty")
             faculty_list = cur.fetchall()
 
-            if not students or not faculty_list:
-                print("[DB] No students or faculty records available to seed sample sessions.")
+            if not faculty_list:
+                print("[DB] No faculty records available to seed sample sessions.")
                 return
 
-            for faculty_id, faculty_user_id in faculty_list:
-                cur.execute("SELECT subject FROM faculty_subjects WHERE faculty_id = ? LIMIT 1", (faculty_id,))
-                row = cur.fetchone()
-                subject = row[0] if row else "General"
-                _seed_lecture_sessions(cur, faculty_user_id, subject, students[:3])
+            for faculty_db_id, faculty_user_id in faculty_list:
+                # Get all semester-subject assignments for this faculty
+                cur.execute("SELECT semester, subject FROM faculty_subjects WHERE faculty_id = ?", (faculty_db_id,))
+                assignments = cur.fetchall()
+
+                if not assignments:
+                    # If no assignments, assign to all semesters with a default subject
+                    assignments = [(str(sem), "General") for sem in range(1, 7)]
+
+                for semester, subject in assignments:
+                    # Get students for this semester
+                    cur.execute("SELECT id FROM students WHERE semester = ?", (semester,))
+                    student_ids = [row[0] for row in cur.fetchall()]
+                    if student_ids:
+                        _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids)
 
             db_conn.commit()
             print("[DB] Auto-seed completed successfully")
@@ -141,12 +149,25 @@ def auto_seed_if_empty(db_conn):
                     "INSERT INTO faculty_subjects (faculty_id, semester, subject) VALUES (?, ?, ?)",
                     (faculty_id, str(sem), subj)
                 )
+            # Add more subjects for semesters 4-6
+            additional_subjects = [("4", "Data Structures"), ("5", "Algorithms"), ("6", "Database Systems")]
+            for sem, subj in additional_subjects:
+                cur.execute(
+                    "INSERT INTO faculty_subjects (faculty_id, semester, subject) VALUES (?, ?, ?)",
+                    (faculty_id, sem, subj)
+                )
 
-        # Insert past lectures and sessions
+        # Insert past lectures and sessions for all faculty and their subjects
         cur.execute("SELECT id, user_id FROM faculty")
         faculty_list = cur.fetchall()
-        for faculty_id, faculty_user_id in faculty_list:
-            _seed_lecture_sessions(cur, faculty_user_id, "Mathematics", [1, 2, 3])
+        for faculty_db_id, faculty_user_id in faculty_list:
+            cur.execute("SELECT semester, subject FROM faculty_subjects WHERE faculty_id = ?", (faculty_db_id,))
+            assignments = cur.fetchall()
+            for semester, subject in assignments:
+                cur.execute("SELECT id FROM students WHERE semester = ?", (semester,))
+                student_ids = [row[0] for row in cur.fetchall()]
+                if student_ids:
+                    _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids)
 
         db_conn.commit()
         print("[DB] Auto-seed completed successfully")
