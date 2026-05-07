@@ -1,7 +1,13 @@
+backend
+sas_env
+__pycache__
+*.db
+*.sqlite3
+*.pkl
+*.h5
+*.pt
+*.pth
+*.joblib
 node_modules
-.env.local
-.env.*.local
 dist
 .git
-.gitignore
-README.md
