@@ -89,20 +89,18 @@ def get_attendance_by_student(student_id):
     
     # Get attendance records for this student
     cur.execute("""
-        SELECT session_id, status, timestamp, end_time
+        SELECT session_id, status, timestamp, start_time, end_time
         FROM attendance
         WHERE student_id = ?
     """, (student_id,))
-    
+
     attendance_map = {}
     for row in cur.fetchall():
         attendance_map[row[0]] = {
             'status': row[1],
-            'joining_time': row[2],
-            'end_time': row[3],
-            'timestamp': row[2]
-        }
-    
+            'timestamp': row[2],
+            'start_time': row[3],
+            'end_time': row[4],
     conn.close()
     
     # Combine lectures with attendance data
@@ -121,21 +119,12 @@ def get_attendance_by_student(student_id):
             status = 'absent'
 
         # Get join and exit times
-        joining_time = attendance_data.get('joining_time') or attendance_data.get('timestamp')
-        end_time_actual = attendance_data.get('end_time')
-
-        # Normalize naive timestamps: assume UTC if no offset present
-        def _norm(ts):
-            if not ts:
-                return None
-            t = str(ts).strip()
-            if '+' not in t and not t.endswith('Z'):
-                return f"{t}+00:00"
-            return t
-
-        joining_time = _norm(joining_time)
-        end_time_actual = _norm(end_time_actual)
-        
+        if status in ['present', 'late']:
+            joining_time = attendance_data.get('start_time') or attendance_data.get('timestamp')
+            end_time_actual = attendance_data.get('end_time')
+        else:
+            joining_time = None
+            end_time_actual = None
         # For completed lectures, use session end_time if student didn't record exit
         if status in ['present', 'late'] and not end_time_actual:
             end_time_actual = end_time
@@ -156,7 +145,7 @@ def get_attendance_by_student(student_id):
             'semester': lecture[11],
             'status': status,
             'joining_time': joining_time,
-            'timestamp': joining_time,
+            'timestamp': attendance_data.get('timestamp'),
             'end_time_actual': end_time_actual
         }
         results.append(result)

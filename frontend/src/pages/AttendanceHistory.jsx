@@ -251,7 +251,7 @@ export default function AttendanceHistory() {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300 font-mono">
-                      {formatTimeIST(row.joining_time || row.timestamp)}
+                      {(row.status === "present" || row.status === "late") ? formatTimeIST(row.joining_time || row.timestamp) : "—"}
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-600 dark:text-slate-300 font-mono">
                       {(row.status === "present" || row.status === "late") ? formatTimeIST(row.end_time_actual) : "—"}
