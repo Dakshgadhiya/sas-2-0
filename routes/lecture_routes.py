@@ -257,25 +257,68 @@ def faculty_summary():
     cur.execute("SELECT COUNT(*) FROM students")
     total_students = cur.fetchone()[0]
     
-    # Count today's attendance for THIS faculty's lectures only
+    # Get faculty's teaching semesters
+    cur.execute("""
+        SELECT DISTINCT semester FROM faculty_subjects WHERE faculty_id = (
+            SELECT id FROM faculty WHERE user_id = ?
+        )
+    """, (g.user_id,))
+    faculty_semesters = [row[0] for row in cur.fetchall()]
+    
     today = datetime.now().date().isoformat()
+    semester_data = {}
+    
+    for semester in faculty_semesters:
+        # Today's attendance for this semester
+        cur.execute("""
+            SELECT COUNT(*) FROM attendance a
+            JOIN lecture_sessions ls ON ls.id = a.session_id
+            JOIN lectures l ON l.id = ls.lecture_id
+            WHERE l.date = ? AND a.status IN ('present', 'late') AND l.faculty_id = ? AND ls.semester = ?
+        """, (today, g.user_id, semester))
+        today_attendance = cur.fetchone()[0]
+        
+        # Past lectures for this semester (closed sessions, sorted by date desc)
+        cur.execute("""
+            SELECT ls.*, l.title AS lecture_title, l.subject AS lecture_subject, l.date AS lecture_date,
+                   COALESCE(attendance_counts.count, 0) AS attendance_count
+            FROM lecture_sessions ls
+            JOIN lectures l ON l.id = ls.lecture_id
+            LEFT JOIN (
+                SELECT session_id, COUNT(*) AS count
+                FROM attendance
+                WHERE status IN ('present', 'late')
+                GROUP BY session_id
+            ) attendance_counts ON attendance_counts.session_id = ls.id
+            WHERE l.faculty_id = ? AND ls.semester = ? AND ls.status = 'closed'
+            ORDER BY l.date DESC, ls.start_time DESC
+        """, (g.user_id, semester))
+        past_lectures = [row_to_dict(row) for row in cur.fetchall()]
+        
+        semester_data[semester] = {
+            "today_attendance": today_attendance,
+            "past_lectures": past_lectures
+        }
+    
+    # Overall today attendance
     cur.execute("""
         SELECT COUNT(*) FROM attendance a
         JOIN lecture_sessions ls ON ls.id = a.session_id
         JOIN lectures l ON l.id = ls.lecture_id
-        WHERE l.date = ? AND a.status = 'present' AND l.faculty_id = ?
+        WHERE l.date = ? AND a.status IN ('present', 'late') AND l.faculty_id = ?
     """, (today, g.user_id))
-    today_attendance = cur.fetchone()[0]
+    overall_today_attendance = cur.fetchone()[0]
     
-    # Count THIS faculty's lecture sessions only
+    # Overall total sessions
     cur.execute("SELECT COUNT(*) FROM lecture_sessions ls JOIN lectures l ON l.id = ls.lecture_id WHERE l.faculty_id = ?", (g.user_id,))
     total_sessions = cur.fetchone()[0]
     
     conn.close()
     return jsonify({
         "total_students": total_students,
-        "today_attendance": today_attendance,
-        "total_sessions": total_sessions
+        "today_attendance": overall_today_attendance,
+        "total_sessions": total_sessions,
+        "semesters": semester_data
     })
 
 

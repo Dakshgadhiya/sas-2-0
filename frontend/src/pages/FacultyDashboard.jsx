@@ -27,7 +27,7 @@ function parseSessionStart(session) {
 }
 
 export default function FacultyDashboard() {
-  const [summary, setSummary] = useState({ total_students: 0, today_attendance: 0, total_sessions: 0 });
+  const [summary, setSummary] = useState({ total_students: 0, today_attendance: 0, total_sessions: 0, semesters: {} });
   const [sessions, setSessions] = useState([]);
   const [students, setStudents] = useState([]);
   const [userId, setUserId] = useState(null);
@@ -118,33 +118,24 @@ export default function FacultyDashboard() {
 
   const myUpcoming = userId ? upcoming.filter((s) => Number(s.faculty_id) === Number(userId)) : upcoming;
 
-  const past = userId 
-    ? filteredSessions.filter((s) => {
-        let end = null;
-        if (s.end_time) {
-          try {
-            const ms = Date.parse(normalizeTimestamp(s.end_time));
-            if (!Number.isNaN(ms)) end = new Date(ms);
-          } catch (e) {
-            end = null;
-          }
-        }
-        return Number(s.faculty_id) === Number(userId) && end && end < now && (s.status === "closed" || s.status === "ended");
-      }).sort((a, b) => {
-        const am = a.end_time ? Date.parse(normalizeTimestamp(a.end_time)) : 0;
-        const bm = b.end_time ? Date.parse(normalizeTimestamp(b.end_time)) : 0;
-        return bm - am;
+  const past = selectedSemester === "all"
+    ? Object.values(summary.semesters).flatMap(sem => sem.past_lectures || []).sort((a, b) => {
+        const ad = a.lecture_date || '';
+        const bd = b.lecture_date || '';
+        return bd.localeCompare(ad);
       })
-    : [];
+    : summary.semesters[selectedSemester]?.past_lectures || [];
 
   // Calculate semester-specific metrics
   const semesterMetrics = selectedSemester === "all" 
     ? { students: summary.total_students, attendance: summary.today_attendance, sessions: summary.total_sessions }
-    : {
-        students: students.filter(s => String(s.semester) === String(selectedSemester)).length,
-        attendance: filteredSessions.reduce((sum, s) => sum + (s.attendance_count || 0), 0),
-        sessions: filteredSessions.filter(s => Number(s.faculty_id) === Number(userId)).length
-      };
+    : summary.semesters[selectedSemester] 
+      ? { 
+          students: students.filter(s => String(s.semester) === String(selectedSemester)).length,
+          attendance: summary.semesters[selectedSemester].today_attendance,
+          sessions: summary.semesters[selectedSemester].past_lectures.length
+        }
+      : { students: 0, attendance: 0, sessions: 0 };
 
   return (
     <SidebarLayout role="faculty">
