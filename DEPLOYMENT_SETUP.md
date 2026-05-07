@@ -6,8 +6,8 @@ Go to https://dashboard.render.com/ → Your Backend Service → Environment
 
 Add these variables:
 ```
-APP_SECRET_KEY = your-random-secret-key-here
-JWT_SECRET = your-random-jwt-secret-here
+APP_SECRET_KEY = sas_super_secret_key_2026
+JWT_SECRET = sas_jwt_secret_2026
 FLASK_ENV = production
 DATABASE_URL = sqlite:////var/data/app.db
 PYTHONUNBUFFERED = true
@@ -19,7 +19,7 @@ Go to https://vercel.com/dashboard → Your Frontend Project → Settings → En
 
 Add this variable:
 ```
-VITE_API_URL = https://sas-2-0-tosl.onrender.com
+VITE_API_URL = https://sas-2-0-i41p.onrender.com/
 ```
 
 ## Step 3: Push to GitHub
