@@ -21,6 +21,38 @@ def _dedupe_attendance(cur):
     )
 
 
+def _fix_zero_length_sessions(cur):
+    cur.execute(
+        "SELECT id, start_time, end_time FROM lecture_sessions WHERE start_time IS NOT NULL AND end_time IS NOT NULL AND start_time = end_time"
+    )
+    rows = cur.fetchall()
+    for row in rows:
+        try:
+            start_dt = datetime.fromisoformat(row["start_time"])
+            corrected_end = (start_dt + timedelta(hours=1)).replace(microsecond=0).isoformat()
+            cur.execute(
+                "UPDATE lecture_sessions SET end_time = ? WHERE id = ?",
+                (corrected_end, row["id"])
+            )
+        except Exception:
+            pass
+
+    cur.execute(
+        "SELECT id, start_time, end_time FROM attendance WHERE start_time IS NOT NULL AND end_time IS NOT NULL AND start_time = end_time"
+    )
+    rows = cur.fetchall()
+    for row in rows:
+        try:
+            start_dt = datetime.fromisoformat(row["start_time"])
+            corrected_end = (start_dt + timedelta(hours=1)).replace(microsecond=0).isoformat()
+            cur.execute(
+                "UPDATE attendance SET end_time = ? WHERE id = ?",
+                (corrected_end, row["id"])
+            )
+        except Exception:
+            pass
+
+
 def init_db():
     conn = get_db()
     cur = conn.cursor()
@@ -251,9 +283,12 @@ def init_db():
     except Exception as e:
         pass  # Migration might not be needed or table doesn't exist yet
 
+    # Fix any seeded sessions or attendance rows where end_time was accidentally written equal to start_time
+    _fix_zero_length_sessions(cur)
+
     # Cleanup lectures older than 1 day (and related sessions)
-    cutoff = (datetime.now().date() - timedelta(days=1)).isoformat()
-    cur.execute("DELETE FROM lectures WHERE date < ?", (cutoff,))
+    # cutoff = (datetime.now().date() - timedelta(days=1)).isoformat()
+    # cur.execute("DELETE FROM lectures WHERE date < ?", (cutoff,))
 
     # Remove duplicate attendance rows before enforcing unique index
     _dedupe_attendance(cur)

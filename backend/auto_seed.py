@@ -36,7 +36,7 @@ def _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids,
         start_dt = past_date.replace(hour=9, minute=0, second=0, microsecond=0)
         end_dt = past_date.replace(hour=10, minute=0, second=0, microsecond=0)
         start_time = _iso_date_time(start_dt)
-        end_time = _iso_date_time(end_dt)
+        end_time = _iso_date_time(end_dt, hour=10)
 
         cur.execute(
             "INSERT INTO lectures (title, subject, date, faculty_id, latitude, longitude, radius) VALUES (?, ?, ?, ?, 21.1702, 72.8311, 50)",
@@ -60,7 +60,7 @@ def _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids,
                 late_minutes = random.randint(5, 25)
                 late_seconds = random.randint(0, 59)
                 late_dt = start_dt + timedelta(minutes=late_minutes, seconds=late_seconds)
-                attendance_start = _iso_date_time(late_dt)
+                attendance_start = late_dt.isoformat()
                 attendance_end = end_time
                 attendance_timestamp = attendance_start
             else:  # absent

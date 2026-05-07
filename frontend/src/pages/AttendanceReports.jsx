@@ -240,10 +240,10 @@ export default function AttendanceReports() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm text-neutral dark:text-slate-400">
-                    {formatTimeIST(row.join_time)}
+                    {row.join_time ? formatTimeIST(row.join_time) : "-"}
                   </td>
                   <td className="px-4 py-3 text-sm text-neutral dark:text-slate-400">
-                    {formatTimeIST(row.exit_time)}
+                    {row.exit_time ? formatTimeIST(row.exit_time) : "-"}
                   </td>
                   <td className="px-4 py-3 text-sm font-bold text-slate-900 dark:text-white">
                     {row.duration_minutes !== null && row.duration_minutes !== undefined ? `${row.duration_minutes} min` : "-"}

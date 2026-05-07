@@ -36,16 +36,47 @@ function formatDateTime(dateStr, timeStr) {
 function calculateDuration(joinTime, exitTime) {
   if (!joinTime || !exitTime) return "N/A";
   try {
-    const join = new Date(`2000-01-01T${joinTime}`);
-    const exit = new Date(`2000-01-01T${exitTime}`);
-    const diffMs = exit - join;
-    const diffMins = Math.floor(diffMs / 60000);
+    const joinMs = Date.parse(normalizeTimestamp(joinTime));
+    const exitMs = Date.parse(normalizeTimestamp(exitTime));
+    if (Number.isNaN(joinMs) || Number.isNaN(exitMs)) return "N/A";
+    const diffMins = Math.floor((exitMs - joinMs) / 60000);
+    if (diffMins < 0) return "N/A";
     const hours = Math.floor(diffMins / 60);
     const mins = diffMins % 60;
     return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   } catch (e) {
     return "N/A";
   }
+}
+
+function exportAttendanceCsv(rows) {
+  if (!rows || rows.length === 0) return null;
+  const header = [
+    "No.",
+    "Lecture Date",
+    "Subject",
+    "Lecture",
+    "Faculty",
+    "Status",
+    "Join Time",
+    "Exit Time",
+    "Duration"
+  ];
+  const csvRows = rows.map((row, index) => [
+    index + 1,
+    formatDateDDMMYYYY(row.lecture_date),
+    row.lecture_subject || "-",
+    row.lecture_title || "-",
+    row.faculty_name || "-",
+    row.status ? row.status.charAt(0).toUpperCase() + row.status.slice(1) : "-",
+    (row.status === "present" || row.status === "late") ? formatTimeIST(row.joining_time || row.timestamp) : "",
+    (row.status === "present" || row.status === "late") ? formatTimeIST(row.end_time_actual) : "",
+    (row.status === "present" || row.status === "late") ? calculateDuration(row.joining_time || row.timestamp, row.end_time_actual) : ""
+  ]);
+  return [header, ...csvRows].map(r => r.map(cell => {
+    const str = String(cell ?? "");
+    return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  }).join(",")).join("\n");
 }
 
 export default function AttendanceHistory() {
@@ -83,9 +114,13 @@ export default function AttendanceHistory() {
     try {
       const date = row.lecture_date;
       const time = row.end_time_actual || row.end_time;
-      if (!date || !time) return null;
+      if (!time) return null;
 
-      const normalized = normalizeTimestamp(`${date}T${time}`);
+      let timestamp = time;
+      if (date && !time.includes("T")) {
+        timestamp = `${date}T${time}`;
+      }
+      const normalized = normalizeTimestamp(timestamp);
       const ms = Date.parse(normalized);
       return Number.isNaN(ms) ? null : ms;
     } catch (e) {
@@ -153,6 +188,24 @@ export default function AttendanceHistory() {
     }
   };
 
+  const downloadReport = () => {
+    const csv = exportAttendanceCsv(filteredHistory);
+    if (!csv) {
+      showInfo("No records available to export.");
+      return;
+    }
+    const filename = `attendance_report_${selectedSubject === 'all' ? 'all_subjects' : selectedSubject.replace(/\s+/g, '_')}.csv`;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   return (
     <SidebarLayout role="student">
       <div className="mb-8">
@@ -161,25 +214,55 @@ export default function AttendanceHistory() {
       </div>
 
       {/* Subject Filter */}
-      {uniqueSubjects.length > 0 && (
-        <div className="mb-6 flex items-center gap-4">
-          <label className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
-            Filter by Subject:
-          </label>
-          <select
-            value={selectedSubject}
-            onChange={(e) => setSelectedSubject(e.target.value)}
-            className="px-4 py-2 rounded-lg border border-slate-300 dark:border-[#33415c] bg-white dark:bg-[#001845] text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#0466c8]"
-          >
-            <option value="all">All Subjects ({history.length})</option>
-            {uniqueSubjects.map(subject => (
-              <option key={subject} value={subject}>
-                {subject} ({history.filter(h => h.lecture_subject === subject).length})
-              </option>
-            ))}
-          </select>
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
+          <div className="rounded-lg border border-slate-200 dark:border-[#33415c] bg-white dark:bg-[#002855] p-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold tracking-wide">Total Lectures</p>
+            <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{overallStats.total}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-[#33415c] bg-white dark:bg-[#002855] p-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold tracking-wide">Attended</p>
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400 mt-1">{overallStats.attended}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-[#33415c] bg-white dark:bg-[#002855] p-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold tracking-wide">Absent</p>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400 mt-1">{overallStats.absent}</p>
+          </div>
+          <div className="rounded-lg border border-slate-200 dark:border-[#33415c] bg-white dark:bg-[#002855] p-4">
+            <p className="text-xs text-slate-600 dark:text-slate-400 uppercase font-bold tracking-wide">Attendance %</p>
+            <p className={`text-2xl font-bold mt-1 ${getAttendanceColor(overallStats.percentage)}`}>{overallStats.percentage}%</p>
+          </div>
         </div>
-      )}
+
+        {uniqueSubjects.length > 0 && (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex items-center gap-4">
+              <label className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">
+                Filter by Subject:
+              </label>
+              <select
+                value={selectedSubject}
+                onChange={(e) => setSelectedSubject(e.target.value)}
+                className="px-4 py-2 rounded-lg border border-slate-300 dark:border-[#33415c] bg-white dark:bg-[#001845] text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#0466c8]"
+              >
+                <option value="all">All Subjects ({history.length})</option>
+                {uniqueSubjects.map(subject => (
+                  <option key={subject} value={subject}>
+                    {subject} ({history.filter(h => h.lecture_subject === subject).length})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={downloadReport}
+              className="w-full sm:w-auto rounded-lg bg-[#0466c8] hover:bg-[#0353a4] text-white px-4 py-2 font-bold transition-all"
+            >
+              Download Report
+            </button>
+          </div>
+        )}
+      </div>
 
       {loading ? (
         <div className="p-8 text-center bg-info/10 dark:bg-info/20 rounded-lg text-info dark:text-[#60a5fa]">
