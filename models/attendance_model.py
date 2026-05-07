@@ -101,6 +101,7 @@ def get_attendance_by_student(student_id):
             'timestamp': row[2],
             'start_time': row[3],
             'end_time': row[4],
+        }
     conn.close()
     
     # Combine lectures with attendance data
@@ -179,8 +180,14 @@ def get_attendance_by_session(session_id):
             COALESCE(a.latitude, NULL) as latitude,
             COALESCE(a.longitude, NULL) as longitude,
             a.status,
-            COALESCE(a.timestamp, NULL) as join_time,
-            COALESCE(a.end_time, NULL) as exit_time,
+            CASE
+                WHEN a.status = 'absent' THEN NULL
+                ELSE COALESCE(a.start_time, a.timestamp)
+            END as join_time,
+            CASE
+                WHEN a.status = 'absent' THEN NULL
+                ELSE a.end_time
+            END as exit_time,
             s.id as student_id,
             s.roll_number,
             u.name as student_name,
