@@ -33,8 +33,10 @@ MIN_LECTURES_PER_SEMESTER = 7
 def _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids, lecture_count=MIN_LECTURES_PER_SEMESTER):
     for lec_num in range(lecture_count):
         past_date = datetime.now() - timedelta(days=2 + lec_num * 3)
-        start_time = _iso_date_time(past_date, hour=9)
-        end_time = _iso_date_time(past_date, hour=10)
+        start_dt = past_date.replace(hour=9, minute=0, second=0, microsecond=0)
+        end_dt = past_date.replace(hour=10, minute=0, second=0, microsecond=0)
+        start_time = _iso_date_time(start_dt)
+        end_time = _iso_date_time(end_dt)
 
         cur.execute(
             "INSERT INTO lectures (title, subject, date, faculty_id, latitude, longitude, radius) VALUES (?, ?, ?, ?, 21.1702, 72.8311, 50)",
@@ -50,9 +52,25 @@ def _seed_lecture_sessions(cur, faculty_user_id, semester, subject, student_ids,
 
         for student_id in student_ids:
             status = random.choice(["present", "late", "absent"])
+            if status == "present":
+                attendance_start = start_time
+                attendance_end = end_time
+                attendance_timestamp = start_time
+            elif status == "late":
+                late_minutes = random.randint(5, 25)
+                late_seconds = random.randint(0, 59)
+                late_dt = start_dt + timedelta(minutes=late_minutes, seconds=late_seconds)
+                attendance_start = _iso_date_time(late_dt)
+                attendance_end = end_time
+                attendance_timestamp = attendance_start
+            else:  # absent
+                attendance_start = None
+                attendance_end = None
+                attendance_timestamp = start_time
+
             cur.execute(
                 "INSERT INTO attendance (student_id, session_id, latitude, longitude, status, start_time, end_time, timestamp) VALUES (?, ?, 21.1702, 72.8311, ?, ?, ?, ?)",
-                (student_id, session_id, status, start_time, end_time, start_time)
+                (student_id, session_id, status, attendance_start, attendance_end, attendance_timestamp)
             )
 
 
