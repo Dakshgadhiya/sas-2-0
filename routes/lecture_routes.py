@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, g
 from backend.auth_utils import auth_required
-from backend.database import get_db
+from backend.database import get_db, row_to_dict
 from models.lecture_model import create_lecture, create_session, get_active_session, list_sessions
 from models.user_model import get_all_students
 from models.notifications_model import create_notification
