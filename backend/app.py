@@ -11,11 +11,12 @@ if BASE_DIR not in sys.path:
 from backend import config
 from backend.database import init_db, get_db
 from backend.auto_seed import auto_seed_if_empty
-from routes.auth_routes import auth_routes
-from routes.lecture_routes import lecture_routes
-from routes.attendance_routes import attendance_routes
-from routes.admin_routes import admin_routes
-from routes.notifications_routes import notifications_routes
+
+from backend.routes.auth_routes import auth_routes
+from backend.routes.lecture_routes import lecture_routes
+from backend.routes.attendance_routes import attendance_routes
+from backend.routes.admin_routes import admin_routes
+from backend.routes.notifications_routes import notifications_routes
 
 
 def create_app():
