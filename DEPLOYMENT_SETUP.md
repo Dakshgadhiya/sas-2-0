@@ -9,7 +9,7 @@ Add these variables:
 APP_SECRET_KEY = sas_super_secret_key_2026
 JWT_SECRET = sas_jwt_secret_2026
 FLASK_ENV = production
-DATABASE_URL = sqlite:////var/data/app.db
+DATABASE_URL = sqlite:////tmp/app.db
 PYTHONUNBUFFERED = true
 ```
 

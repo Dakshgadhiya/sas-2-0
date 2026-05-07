@@ -25,20 +25,18 @@ def create_app():
     app.config["SECRET_KEY"] = config.SECRET_KEY
     app.config["UPLOAD_FOLDER"] = config.UPLOAD_FOLDER
 
-    CORS(app, resources={r"/*": {"origins": "*"}}, allow_headers=["Content-Type", "Authorization"])
+    CORS(
+        app,
+        resources={r"/*": {"origins": "*"}},
+        allow_headers=["Content-Type", "Authorization"]
+    )
 
     # Create required folders
     os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(config.DATASET_FOLDER, exist_ok=True)
     os.makedirs(config.MODEL_FOLDER, exist_ok=True)
 
-    # Init DB
-    init_db()
-    
-    # Auto-seed if empty (for Render deployments)
-    db = get_db()
-    auto_seed_if_empty(db)
-    db.close()
+    # ❌ REMOVED DB INIT FROM HERE (this was crashing Render)
 
     # Register blueprints
     app.register_blueprint(auth_routes)
@@ -59,10 +57,23 @@ def create_app():
     return app
 
 
-# ✅ IMPORTANT: expose app for Gunicorn (THIS FIXES YOUR ISSUE)
+# ----------------------------
+# SAFE DB INITIALIZATION
+# ----------------------------
+def initialize_db():
+    init_db()
+    db = get_db()
+    auto_seed_if_empty(db)
+    db.close()
+
+
+# Expose app for Gunicorn
 app = create_app()
 
+# Run DB setup AFTER app creation (safe for Render)
+initialize_db()
 
-# Optional local run only
+
+# Local development only
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
